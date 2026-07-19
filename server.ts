@@ -91,9 +91,8 @@ const soWrite = (conn: TCPConn, data: Buffer): Promise<boolean> => {
       return;
     }
 
-    let buffer_flashed = true;
-    if (conn.socket && buffer_flashed) {
-      buffer_flashed = conn.socket.write(data, (err) => {
+    if (conn.socket) {
+      const buffer_flashed = conn.socket.write(data, (err) => {
         if (err) {
           reject(err);
         } else {
@@ -170,25 +169,20 @@ const soAccept = (listener: TCPListener): Promise<TCPConn> => {
   });
 };
 
-const handleAcceptConn = (listener: TCPListener): void => {
+const handleAcceptConn = async (listener: TCPListener): Promise<void> => {
   listener.server.on("connection", (socket: net.Socket) => {
     const conn: TCPConn = soInit(socket);
     listener.accepter?.resolve(conn);
     listener.accepter = null;
   });
-};
-
-const connectionLoops = async (listener: TCPListener) => {
-  const solistener = listener;
-  handleAcceptConn(solistener);
   while (true) {
-    const conn = await soAccept(solistener);
-    await newConnection(conn);
+    const conn = await soAccept(listener);
+    newConnection(conn);
   }
 };
 
 // *** Server initialization
 // ******************************
 const listener = soListen();
-connectionLoops(listener);
+handleAcceptConn(listener);
 listener.server.listen({ host: "127.0.0.1", port: 1234 });
