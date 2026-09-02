@@ -143,6 +143,7 @@ const soListen = (): TCPListener => {
     accepter: null,
     close: false,
   };
+  // attached events on the created server
   server.on("listening", () => {
     server.once("close", () => {
       listener.close = true;
@@ -185,4 +186,10 @@ const handleAcceptConn = async (listener: TCPListener): Promise<void> => {
 // ******************************
 const listener = soListen();
 handleAcceptConn(listener);
-listener.server.listen({ host: "127.0.0.1", port: 1234 });
+
+const host = "0.0.0.0";
+const port = 1234;
+
+listener.server.listen({ host, port }, () => {
+  console.log(`server is listening on server port ${port} host ${host}`);
+});

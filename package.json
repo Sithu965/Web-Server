@@ -1,6 +1,13 @@
 {
+  "scripts": {
+    "start": "node server.js",
+    "dev": "tsx server.ts",
+    "build": "tsc",
+    "watch": "tsx watch server.ts"
+  },
   "devDependencies": {
     "@types/node": "^26.0.1",
+    "tsx": "^4.23.13",
     "typescript": "^6.0.3"
   }
 }
