@@ -10,6 +10,53 @@ type TCPConn = {
   error: null | Error;
 };
 
+// Dynamics Buffer Stroage
+type DynBuf = {
+  data: Buffer; // Buffer that store data
+  length: number; // length of existing data
+};
+
+// Adding data to buffer
+const bufPush = (buf: DynBuf, data: Buffer): void => {
+  const newLength = buf.length + data.length;
+  if (newLength > buf.data.length) {
+    // increase the size of the buffer
+    let cap = Math.max(buf.data.length, 32);
+    while (newLength > cap) {
+      cap *= 2;
+    }
+    const newBuf = Buffer.alloc(cap);
+    buf.data.copy(newBuf, 0, 0, buf.length);
+    buf.data = newBuf;
+  }
+  data.copy(buf.data, buf.length, 0, data.length);
+  buf.length = newLength;
+};
+
+// Removing data from buffer
+const bufPop = (buf: DynBuf, length: number): void => {
+  buf.data.copyWithin(0, length, buf.length);
+  buf.length -= length;
+};
+
+// Parsing the sended message
+// Example - buf.data = "helloo\nworld\neveryone\ngood" buf.length = 26(total msg len) buf.data.length = 32 (total buf len)
+// start = [0, 7, 13, 22]
+// end = [6, 12, 21, -1]
+const cutMessage = (buf: DynBuf, start: number, end: number): null | Buffer => {
+  const threshold = 0.5;
+  const bufLen = buf.data.length; // 32
+  if (end < 0) {
+    return null; // Not a complete message
+  }
+  // ["helloo\n", ]
+  const msg = Buffer.from(buf.data.subarray(start, end + 1));
+  if (end / bufLen > threshold) {
+    bufPop(buf, end + 1);
+  }
+  return msg;
+};
+
 // *** Connection Socket handling
 // ******************************
 
@@ -104,17 +151,51 @@ const soWrite = (conn: TCPConn, data: Buffer): Promise<boolean> => {
 };
 
 const serveClient = async (conn: TCPConn): Promise<void> => {
+  const buf: DynBuf = { data: Buffer.alloc(0), length: 0 };
+  // Example - helloo\nworld\neveryone\ngood
+  let startIdx = 0; // [0, 7, 13, 22]
+  let endIdx = buf.data.subarray(0, buf.length).indexOf("\n"); // [6, 12, 21, -1]
   while (true) {
-    const data = await soRead(conn);
-    if (data.length === 0) {
-      console.log("Connection closed by client");
-      break;
+    // Search for a complete message in the buffer
+    const msg: null | Buffer = cutMessage(buf, startIdx, endIdx);
+    // Cut done - Increase Indexes { Start from sec cut }
+    if (endIdx >= 0) {
+      startIdx = endIdx + 1; // [7, 13, 22]
+      const idx = buf.data.subarray(startIdx, buf.length).indexOf("\n"); // [5, 8, -1]
+      if (idx === -1) {
+        endIdx = -1;
+      } else {
+        endIdx = startIdx + idx; // [12, 21, -1]
+      }
     }
-    console.log("Received data:", data);
-    const flash: boolean = await soWrite(conn, data); // Echo back the received data
-    if (!flash) {
-      // backpressure / control flow
-      conn.socket!.pause();
+
+    // When => Not found a complete message in the buffer
+    if (!msg) {
+      // Read more data from the connection
+      const data: Buffer = await soRead(conn);
+      // No data received
+      if (data.length === 0) {
+        console.log("Connection closed by client");
+        return;
+      }
+      // Push the received data to the buffer
+      bufPush(buf, data);
+      continue;
+    }
+    if (msg.equals(Buffer.from("quit"))) {
+      console.log("Bye");
+      await soWrite(conn, Buffer.from("Bye!\n"));
+      conn.socket?.destroy();
+      return;
+    } else {
+      // Echo the receive message back to sender
+      console.log("Echo: ", msg);
+      const reply = Buffer.concat([Buffer.from("Echo: "), msg]);
+      const flash: boolean = await soWrite(conn, reply); // Echo back the received data
+      if (!flash) {
+        // backpressure
+        conn.socket!.pause();
+      }
     }
   }
 };

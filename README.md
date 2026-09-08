@@ -8,8 +8,12 @@ Install nc or socat
 
    > > > socat - TCP4:www.example.com:80\
 
-   \- is a shorthand alias for STDIO.
-   TCP4:www.example.com:80 defines the remote IPv4 target address
+   You can test the pipelined scenario with the following command line.
+
+   > > > echo -e 'asdf\n1234' | socat tcp:127.0.0.1:1234 -
+
+\- is a shorthand alias for STDIO.
+TCP4:www.example.com:80 defines the remote IPv4 target address
 
 2. Port Forwarding / Relaying\
    To listen on local port 8080 and forward all traffic to an entirely different server (e.g., ://example.com on port 80)
