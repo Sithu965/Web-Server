@@ -173,13 +173,13 @@ const serveClient = async (conn: TCPConn): Promise<void> => {
     if (!msg) {
       // Read more data from the connection
       const data: Buffer = await soRead(conn);
+      // Push the received data to the buffer
+      bufPush(buf, data);
       // No data received
-      if (data.length === 0) {
+      if (data.length === 0 && buf.length === 0) {
         console.log("Connection closed by client");
         return;
       }
-      // Push the received data to the buffer
-      bufPush(buf, data);
       continue;
     }
     if (msg.equals(Buffer.from("quit"))) {
