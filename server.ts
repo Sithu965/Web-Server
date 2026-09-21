@@ -1,13 +1,26 @@
 import * as net from "net";
 
-type TCPConn = {
-  socket: net.Socket | null;
-  reader: null | {
-    resolve: (value: Buffer) => void;
-    reject: (reason?: Error) => void;
-  };
-  end: boolean; // EOF
-  error: null | Error;
+// HTTP Request Header
+type HTTPReq = {
+  // first line of Req Header [GET /echo HTTP/1.1]
+  method: string; // Get, Post
+  uri: Buffer; // left as bytes until parse needed [Host]
+  version: string; // HTTP1, HTTP1.1, HTTP2
+  headers: Buffer[]; // Remaining headers e.g. HOST, User-Agent, Accept, Accept-Language, Accept-Encoding, Referer, Connection, etc...
+};
+
+// HTTP Body Reader
+type BodyReader = {
+  length: number;
+  read: () => Promise<Buffer>;
+};
+
+// HTTP Response
+type HTTPRes = {
+  // first line of Res Header [200 Ok]
+  code: number; // 200, 401
+  headers: Buffer[]; // Remaining headers
+  body: BodyReader;
 };
 
 // Dynamics Buffer Stroage
@@ -59,6 +72,17 @@ const cutMessage = (buf: DynBuf, start: number, end: number): null | Buffer => {
 
 // *** Connection Socket handling
 // ******************************
+
+// TCP Connection
+type TCPConn = {
+  socket: net.Socket | null;
+  reader: null | {
+    resolve: (value: Buffer) => void;
+    reject: (reason?: Error) => void;
+  };
+  end: boolean; // EOF
+  error: null | Error;
+};
 
 const newConnection = async (conn: TCPConn): Promise<void> => {
   console.log(
@@ -203,6 +227,7 @@ const serveClient = async (conn: TCPConn): Promise<void> => {
 // *** Listening socket handling
 // ******************************
 
+// TCP Listener
 type TCPListener = {
   server: net.Server;
   error: null | Error;
