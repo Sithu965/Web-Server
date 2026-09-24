@@ -1,4 +1,8 @@
 import * as net from "net";
+import { HTTPError } from "./ErrorHandler/httperror.ts";
+
+// HTTP Req & Res Handling
+// ***********************
 
 // HTTP Request Header
 type HTTPReq = {
@@ -22,6 +26,17 @@ type HTTPRes = {
   headers: Buffer[]; // Remaining headers
   body: BodyReader;
 };
+
+// Read the Body from the Req Message
+const readerFromReq = (): BodyReader => {};
+
+// Read the Body from Memory
+const readerFromMemory = (memory: Buffer): BodyReader => {};
+
+// Handle the Req and Return Res
+const handleReq = (): HTTPRes => {};
+
+const writeHTTPResp = (): void => {};
 
 // Dynamics Buffer Stroage
 type DynBuf = {
@@ -52,13 +67,19 @@ const bufPop = (buf: DynBuf, length: number): void => {
   buf.length -= length;
 };
 
-// Parsing the sended message
-// Example - buf.data = "helloo\nworld\neveryone\ngood" buf.length = 26(total msg len) buf.data.length = 32 (total buf len)
-// start = [0, 7, 13, 22]
-// end = [6, 12, 21, -1]
-const cutMessage = (buf: DynBuf, start: number, end: number): null | Buffer => {
+// *** Parsing the sended message
+
+// the maximum length of an HTTP header since memory is finite.
+const kMaxHeaderLen = 1024 * 8;
+
+// the end of the header is marked by '\r\n\r\n'
+const cutMessage = (
+  buf: DynBuf,
+  start: number,
+  end: number,
+): null | HTTPReq => {
   const threshold = 0.5;
-  const bufLen = buf.data.length; // 32
+  const bufLen = buf.length;
   if (end < 0) {
     return null; // Not a complete message
   }
@@ -95,7 +116,20 @@ const newConnection = async (conn: TCPConn): Promise<void> => {
     await serveClient(conn);
   } catch (e) {
     console.log("Exception", e);
-    // instead of all catch error, will use proper error handling later
+    // HTTP Error Handling : Note -  Don't throw error like this in production code.
+    if (e instanceof HTTPError) {
+      // intended to send an error response
+      const res: HTTPRes = {
+        code: e.statusCode,
+        headers: [],
+        body: readerFromMemory(Buffer.from(e.message + "\n")),
+      };
+      try {
+        await writeHTTPResp(conn, res);
+      } catch (e) {
+        /* ignore */
+      }
+    }
   } finally {
     conn.socket?.destroy(); // use destroy cuz of allowHalfOpen: true, to close the socket immediately
   }
@@ -174,22 +208,25 @@ const soWrite = (conn: TCPConn, data: Buffer): Promise<boolean> => {
   });
 };
 
+// *** Server Loop
+// ***************
+
 const serveClient = async (conn: TCPConn): Promise<void> => {
   const buf: DynBuf = { data: Buffer.alloc(0), length: 0 };
-  // Example - helloo\nworld\neveryone\ngood
-  let startIdx = 0; // [0, 7, 13, 22]
-  let endIdx = buf.data.subarray(0, buf.length).indexOf("\n"); // [6, 12, 21, -1]
+
+  let startIdx = 0;
+  let endIdx = buf.data.subarray(0, buf.length).indexOf("\n");
   while (true) {
     // Search for a complete message in the buffer
-    const msg: null | Buffer = cutMessage(buf, startIdx, endIdx);
-    // Cut done - Increase Indexes { Start from sec cut }
+    const msg: null | HTTPReq = cutMessage(buf, startIdx, endIdx);
+    // Cut done - Increase Indexes
     if (endIdx >= 0) {
-      startIdx = endIdx + 1; // [7, 13, 22]
-      const idx = buf.data.subarray(startIdx, buf.length).indexOf("\n"); // [5, 8, -1]
+      startIdx = endIdx + 1;
+      const idx = buf.data.subarray(startIdx, buf.length).indexOf("\n");
       if (idx === -1) {
         endIdx = -1;
       } else {
-        endIdx = startIdx + idx; // [12, 21, -1]
+        endIdx = startIdx + idx;
       }
     }
 
@@ -199,27 +236,26 @@ const serveClient = async (conn: TCPConn): Promise<void> => {
       const data: Buffer = await soRead(conn);
       // Push the received data to the buffer
       bufPush(buf, data);
-      // No data received
+      // No data received || EOF
       if (data.length === 0 && buf.length === 0) {
-        console.log("Connection closed by client");
-        return;
+        return; // no more requests
       }
+      if (data.length === 0) {
+        throw new HTTPError(400, "Unexpected EOF.");
+      }
+      // got some data, try it again.
       continue;
     }
-    if (msg.equals(Buffer.from("quit"))) {
-      console.log("Bye");
-      await soWrite(conn, Buffer.from("Bye!\n"));
-      conn.socket?.destroy();
+    const reqBody: BodyReader = readerFromReq(conn, buf, msg);
+    const res: HTTPRes = await handleReq(msg, reqBody);
+    await writeHTTPResp(conn, res);
+    // close the connection for HTTP/1.0
+    if (msg.version === "1.0") {
       return;
-    } else {
-      // Echo the receive message back to sender
-      console.log("Echo: ", msg);
-      const reply = Buffer.concat([Buffer.from("Echo: "), msg]);
-      const flash: boolean = await soWrite(conn, reply); // Echo back the received data
-      if (!flash) {
-        // backpressure
-        conn.socket!.pause();
-      }
+    }
+    // make sure that the request body is consumed completely
+    while ((await reqBody.read()).length > 0) {
+      /* empty */
     }
   }
 };

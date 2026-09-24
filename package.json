@@ -1,10 +1,11 @@
 {
   "scripts": {
-    "start": "node server.js",
-    "dev": "tsx server.ts",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts",
     "build": "tsc",
-    "watch": "tsx watch server.ts"
+    "watch": "tsx watch src/server.ts"
   },
+  "type": "module",
   "devDependencies": {
     "@types/node": "^26.0.1",
     "tsx": "^4.23.13",
