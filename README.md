@@ -32,3 +32,8 @@ TCP4:www.example.com:80 defines the remote IPv4 target address
    > > > bashsocat -u FILE:source_file.txt TCP4:receiver-ip-address:9999
 
    -u forces unidirectional mode, transferring data strictly from left-to-right (from the file to the network socket)
+
+<h2>Reference</h2>
+
+[RFC 9110]: https://datatracker.ietf.org/doc/rfc9110/ "RFC 9110: HTTP Semantics"
+[RFC 9112]: https://ietf.org "RFC 9112: HTTP/1.1 Message Syntax"

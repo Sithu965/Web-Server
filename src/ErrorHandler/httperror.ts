@@ -1,3 +1,4 @@
+// Will UPDATE in future
 export class HTTPError extends Error {
   public statusCode: number;
   constructor(statusCode: number, message: string) {
