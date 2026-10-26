@@ -276,12 +276,28 @@ const readerFromConnLength = (
   };
 };
 
-// Soon to be Implemented <DummyData>
+// the specification — RFC 9112.
+
+// chunked-body   = *chunk
+//                  last-chunk
+//                  trailer-section
+//                  CRLF
+
+// chunk          = chunk-size [ chunk-ext ] CRLF
+//                  chunk-data CRLF
+// chunk-size     = 1*HEXDIG
+// last-chunk     = 1*("0") [ chunk-ext ] CRLF
+
+// chunk-data     = 1*OCTET ; a sequence of chunk-size octets
+// Add an example as a reference:
+
+// 4\r\nHTTP\r\n5\r\nserver\r\n0\r\n\r\n
+
 const readerFromConnChunked = (conn: TCPConn, buf: DynBuf): BodyReader => {
   return {
     length: -1,
     read: async (): Promise<Buffer> => {
-      return Buffer.from("This is dummy data");
+      return Buffer.from("");
     },
   };
 };
@@ -363,16 +379,21 @@ const writeHTTPResp = async (conn: TCPConn, resp: HTTPRes): Promise<void> => {
 
   // Content-Length
   resp.headers.push(Buffer.from(`Content-Length: ${resp.body.length}`));
-  // write the Response Header
-  await soWrite(conn, encodeHTTPResp(resp));
+
+  const writer = createBufferedWriter(conn);
+
+  // write the Response Header into BufferedWriter
+  await writer.write(encodeHTTPResp(resp));
+
   // write the Response Body
   while (true) {
     const data = await resp.body.read();
     if (data.length === 0) {
       break;
     }
-    await soWrite(conn, data);
+    await writer.write(data);
   }
+  await writer.flush(); // flush the remaining data in the buffer
 };
 
 // Dynamics Buffer Stroage
@@ -416,6 +437,9 @@ const cutMessage = (buf: DynBuf): null | HTTPReq => {
     }
     return null; // Not a complete header
   }
+  if (buf.length >= kMaxHeaderLen) {
+    throw new HTTPError(413, "header is too large");
+  }
   const end = idx + 4; // the end of the header is marked by '\r\n\r\n'
 
   const msg = Buffer.from(buf.data.subarray(0, end));
@@ -434,7 +458,6 @@ type BufferedWriter = {
 };
 
 // Basically GOlang's write and flush
-// will implement in the code later but not now. (LAZY)
 const createBufferedWriter = (conn: TCPConn): BufferedWriter => {
   // The fixed internal memory array
   let buf = Buffer.alloc(BUFFER_SIZE);
