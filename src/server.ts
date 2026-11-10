@@ -8,6 +8,7 @@ import {
   parseEncoding,
 } from "./Validation/requestMsg.ts";
 import { HTTP_STATUS_PHRASES } from "./Utils/staticValue.ts";
+import * as fs from "fs/promises";
 
 // *** No Validation & Error Handling Yet ***
 // ******************************************
@@ -222,11 +223,11 @@ const readerFromReq = (
     // "Content-Length" is present
     return readerFromConnLength(conn, buf, bodyLen);
   } else if (chunked) {
-    // "Transfer-Encoding: chunked" is present
-    return readerFromConnChunked(conn, buf);
+    // Chunked Encoding
+    return readerFromGenerator(readChunks(conn, buf));
   } else {
-    // read the rest of the connection [Not Implemented Yet]
-    throw new HTTPError(501, "TODO");
+    // No Content-Length or Chunked Encoding (HTTP/1.0)
+    return readerFromConnEOF(conn, buf);
   }
 };
 
@@ -242,6 +243,29 @@ const readerFromMemory = (memory: Buffer): BodyReader => {
         done = true;
         return memory;
       }
+    },
+  };
+};
+
+// This function is for compatibility with HTTP/1.0 clients.
+const readerFromConnEOF = (conn: TCPConn, buf: DynBuf): BodyReader => {
+  return {
+    length: -1,
+    read: async (): Promise<Buffer> => {
+      // No data
+      if (buf.length === 0) {
+        // get data
+        const data: Buffer = await soRead(conn);
+        // store data
+        bufPush(buf, data);
+        // No data get(EOF)
+        if (data.length === 0) {
+          return Buffer.from("");
+        }
+      }
+      const data = Buffer.from(buf.data.subarray(0, buf.length));
+      bufPop(buf, data.length);
+      return data;
     },
   };
 };
@@ -276,31 +300,119 @@ const readerFromConnLength = (
   };
 };
 
-// the specification — RFC 9112.
-
-// chunked-body   = *chunk
-//                  last-chunk
-//                  trailer-section
-//                  CRLF
-
-// chunk          = chunk-size [ chunk-ext ] CRLF
-//                  chunk-data CRLF
-// chunk-size     = 1*HEXDIG
-// last-chunk     = 1*("0") [ chunk-ext ] CRLF
-
-// chunk-data     = 1*OCTET ; a sequence of chunk-size octets
-// Add an example as a reference:
-
 // 4\r\nHTTP\r\n5\r\nserver\r\n0\r\n\r\n
 
-const readerFromConnChunked = (conn: TCPConn, buf: DynBuf): BodyReader => {
+// Create a BodyReader from an AsyncGenerator
+function readerFromGenerator(gen: BufferGenerator): BodyReader {
   return {
     length: -1,
     read: async (): Promise<Buffer> => {
-      return Buffer.from("");
+      const r = await gen.next();
+      if (r.done) {
+        return Buffer.from(""); // EOF
+      } else {
+        console.assert(r.value.length > 0);
+        // if (r.value.length === 0) {
+        //   throw new Error("Body generator yielded an empty buffer");
+        // }
+        return r.value;
+      }
     },
   };
+}
+
+// JS Generators As Producers
+type BufferGenerator = AsyncGenerator<Buffer, void, void>;
+
+// Generator function to count sheep and yield the count every second
+async function* countSheep(): BufferGenerator {
+  for (let i = 0; i < 100; i++) {
+    // sleep 1s, then output the counter
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    yield Buffer.from(`${i}\n`);
+  }
+}
+
+// Default safe operational limit (16 MB) 'FFFFFF'
+const MAX_CHUNK_SIZE = 16 * 1024 * 1024;
+
+const MAX_CHUNK_LINE_LEN = 1024;
+
+const getChunkSize = (line: Buffer): number => {
+  const hexStr = line.toString("ascii");
+  if (hexStr.length > 8) {
+    throw new Error("400 Bad Request: Chunk size hex string too long");
+  }
+  // remove chunk-ext
+  const stdHex = hexStr.split(";")[0].trim();
+  if (!/^[0-9A-Fa-f]+$/.test(stdHex)) {
+    throw new Error("400 Bad Request: Invalid chunk size format");
+  }
+  const size = parseInt(stdHex, 16);
+  if (isNaN(size) || size < 0) {
+    throw new Error("400 Bad Request: Invalid chunk size format");
+  }
+  if (size > MAX_CHUNK_SIZE) {
+    throw new Error(
+      "413 Payload Too Large: Chunk size exceeds server maximum limit",
+    );
+  }
+  return size;
 };
+
+const bufExpectMore = async (
+  conn: TCPConn,
+  buf: DynBuf,
+  context: string,
+): Promise<void> => {
+  const data: Buffer = await soRead(conn);
+  if (data.length === 0) {
+    throw new Error(`Unexpected EOF while reading ${context}`);
+  }
+  bufPush(buf, data);
+};
+
+// Consumer(Usually this will not be used directly, but it can be used for testing or debugging purposes)
+// decode the chunked encoding and yield the data on the fly
+async function* readChunks(conn: TCPConn, buf: DynBuf): BufferGenerator {
+  for (let last = false; !last; ) {
+    // read the chunk-size line
+    const idx = buf.data.subarray(0, buf.length).indexOf("\r\n");
+    if (idx < 0) {
+      if (buf.length > MAX_CHUNK_LINE_LEN) {
+        throw new Error("400 Bad Request: Chunk size line too long");
+      }
+      // need more data,
+      await bufExpectMore(conn, buf, "chunk size line");
+      continue;
+    }
+    // parse the chunk-size and remove the line
+    let remain = getChunkSize(buf.data.subarray(0, idx));
+    bufPop(buf, idx + 2);
+    // is it the last one?
+    last = remain === 0;
+    // read and yield the chunk data
+    while (remain > 0) {
+      if (buf.length === 0) {
+        await bufExpectMore(conn, buf, "chunk data");
+      }
+      const consume = Math.min(remain, buf.length);
+      // Do not mutate original buffer, create a new buffer to yield
+      const data = Buffer.from(buf.data.subarray(0, consume));
+      bufPop(buf, consume);
+      remain -= consume;
+      yield data;
+    }
+    // the chunk data is followed by CRLF
+    if (buf.length < 2) {
+      await bufExpectMore(conn, buf, "chunk data CRLF");
+    }
+    if (buf.data[0] !== 0x0d || buf.data[1] !== 0x0a) {
+      throw new Error("400 Bad Request: Missing CRLF after chunk data");
+    }
+    bufPop(buf, 2);
+  } // for each chunk
+}
 
 // HTTP Response
 type HTTPRes = {
@@ -311,7 +423,7 @@ type HTTPRes = {
 };
 
 // Handle the Req and Return Res
-// Echo response for /echo and a default response for other URIs
+// Echo response for /echo and a default response for other URIs(Not Finished)
 const handleReq = async (
   header: HTTPReq,
   body: BodyReader,
@@ -320,6 +432,9 @@ const handleReq = async (
   switch (header.uri.toString("latin1")) {
     case "/echo":
       resp = body;
+      break;
+    case "/sheep":
+      resp = readerFromGenerator(countSheep());
       break;
     default:
       resp = readerFromMemory(Buffer.from("HTTP Server Speaking.\n"));
@@ -372,28 +487,36 @@ const encodeHTTPResp = (resp: HTTPRes): Buffer => {
 
 const writeHTTPResp = async (conn: TCPConn, resp: HTTPRes): Promise<void> => {
   if (resp.body.length < 0) {
-    throw new Error("TODO: chunked encoding");
+    // Transfer-Encoding Header
+    resp.headers.push(Buffer.from(`Transfer-Encoding: chunked`));
+  } else {
+    // Content-Length Header
+    resp.headers.push(Buffer.from(`Content-Length: ${resp.body.length}`));
   }
-  // If not chunked, need to have Content-Length header
-  console.assert(!fieldGet(resp.headers, "Content-Length"));
-
-  // Content-Length
-  resp.headers.push(Buffer.from(`Content-Length: ${resp.body.length}`));
 
   const writer = createBufferedWriter(conn);
 
   // write the Response Header into BufferedWriter
   await writer.write(encodeHTTPResp(resp));
 
-  // write the Response Body
-  while (true) {
-    const data = await resp.body.read();
-    if (data.length === 0) {
-      break;
+  // write the Response Body into BufferedWriter
+  const crlf = Buffer.from("\r\n", "latin1");
+  for (let last = false; !last; ) {
+    let data = await resp.body.read();
+    last = data.length === 0;
+    // Transfer-Encoding: chunked
+    if (resp.body.length < 0) {
+      data = Buffer.concat([
+        Buffer.from(data.length.toString(16)),
+        crlf,
+        data,
+        crlf,
+      ]);
     }
-    await writer.write(data);
+    if (data.length) await writer.write(data);
   }
-  await writer.flush(); // flush the remaining data in the buffer
+  // flush the BufferedWriter to ensure all data is sent
+  await writer.flush();
 };
 
 // Dynamics Buffer Stroage
@@ -457,7 +580,6 @@ type BufferedWriter = {
   flush: () => Promise<void>;
 };
 
-// Basically GOlang's write and flush
 const createBufferedWriter = (conn: TCPConn): BufferedWriter => {
   // The fixed internal memory array
   let buf = Buffer.alloc(BUFFER_SIZE);
@@ -578,7 +700,7 @@ const newConnection = async (conn: TCPConn): Promise<void> => {
       try {
         await writeHTTPResp(conn, res);
       } catch (e) {
-        /* ignore */
+        throw new Error("Failed to send error response: " + e);
       }
     }
   } finally {
@@ -688,7 +810,7 @@ const serveClient = async (conn: TCPConn): Promise<void> => {
     }
     // make sure that the request body is consumed completely
     while ((await reqBody.read()).length > 0) {
-      /* empty */
+      /* Drain the data By Looping */
     }
   }
 };
