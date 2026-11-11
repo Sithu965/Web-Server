@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "outDir": "/node_modules/.cache/tsc/HTTP Server/tests",
+    "emitDeclarationOnly": true,
+    "noEmit": false
+  },
+  "include": ["tests/**/*.ts", "**/*.test.ts", "src/**/*"],
+  "exclude": []
+}

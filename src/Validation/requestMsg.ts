@@ -13,7 +13,7 @@ const allowedMethods: ImplementedMethods[] = ["GET", "HEAD"];
 
 const HTTPMethods = new Set<ImplementedMethods>(allowedMethods);
 
-const allowedURIs = new Set<string>(["/echo", "/"]);
+const allowedURIs = new Set<string>(["/echo", "/sheep", "/"]);
 
 const allowedVersions = new Set<string>(["HTTP/1.1", "HTTP/1.0"]);
 

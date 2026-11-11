@@ -10,7 +10,7 @@ import {
 import { HTTP_STATUS_PHRASES } from "./Utils/staticValue.ts";
 import * as fs from "fs/promises";
 
-// *** No Validation & Error Handling Yet ***
+// *** No Error Handling Yet ***
 // ******************************************
 
 // HTTP Req & Res Handling
@@ -801,6 +801,7 @@ const serveClient = async (conn: TCPConn): Promise<void> => {
       // got some data, try it agan.
       continue;
     }
+
     const reqBody: BodyReader = readerFromReq(conn, buf, msg);
     const res: HTTPRes = await handleReq(msg, reqBody);
     await writeHTTPResp(conn, res);

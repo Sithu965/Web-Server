@@ -4,7 +4,6 @@
     "target": "ES2020",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    // "sourceMap": true,
     "esModuleInterop": true,
     "outDir": "./dist",
     "rootDir": "./src",
@@ -12,5 +11,7 @@
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["tests"],
+  "references": [{ "path": "./tsconfig.test.json" }]
 }
