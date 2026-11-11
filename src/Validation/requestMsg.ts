@@ -6,10 +6,10 @@ const VALID_METHODS = ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH
 
 type ValidMethods = (typeof VALID_METHODS)[number];
 
-type ImplementedMethods = Extract<ValidMethods, "GET" | "HEAD">;
+type ImplementedMethods = Extract<ValidMethods, "GET" | "HEAD" | "POST">;
 
 // MUST Always allowed Get and Head methods according to RFC 9110
-const allowedMethods: ImplementedMethods[] = ["GET", "HEAD"];
+const allowedMethods: ImplementedMethods[] = ["GET", "HEAD", "POST"];
 
 const HTTPMethods = new Set<ImplementedMethods>(allowedMethods);
 
@@ -17,7 +17,7 @@ const allowedURIs = new Set<string>(["/echo", "/sheep", "/"]);
 
 const allowedVersions = new Set<string>(["HTTP/1.1", "HTTP/1.0"]);
 
-const validatePath = (uri: string): boolean => {
+export const validatePath = (uri: string): boolean => {
   // RFC 9110: The path component of the target URI is case-sensitive
 
   // Empty URI
