@@ -26,7 +26,7 @@ describe("validateFirstLine()", () => {
 
   it("should reject unsupported HTTP methods with 405", () => {
     assert.throws(
-      () => validateFirstLine("POST", Buffer.from("/"), "HTTP/1.1"),
+      () => validateFirstLine("PUT", Buffer.from("/"), "HTTP/1.1"),
       (error: unknown) =>
         error instanceof HTTPError && error.statusCode === 405,
     );
@@ -42,7 +42,7 @@ describe("validateFirstLine()", () => {
 
   it("should reject unknown URIs with 404", () => {
     assert.throws(
-      () => validateFirstLine("GET", Buffer.from("/unknown"), "HTTP/1.1"),
+      () => validateFirstLine("GET", Buffer.from("/randomuri"), "HTTP/1.1"),
       (error: unknown) =>
         error instanceof HTTPError && error.statusCode === 404,
     );
@@ -56,10 +56,6 @@ describe("validateFirstLine()", () => {
     );
   });
 });
-
-// =====================================
-// validateHeaders()
-// =====================================
 
 describe("validateHeaders()", () => {
   it("should accept a valid HTTP header", () => {
@@ -86,10 +82,6 @@ describe("validateHeaders()", () => {
     assert.equal(validateHeaders(Buffer.from("X-Test: hello\x01world")), false);
   });
 });
-
-// =====================================
-// parseDec()
-// =====================================
 
 describe("parseDec()", () => {
   it("should parse a valid decimal number", () => {
@@ -125,10 +117,6 @@ describe("parseDec()", () => {
     assert.throws(() => parseDec("9007199254740992"));
   });
 });
-
-// =====================================
-// parseEncoding()
-// =====================================
 
 describe("parseEncoding()", () => {
   it("should parse chunked encoding", () => {

@@ -560,12 +560,13 @@ const cutMessage = (buf: DynBuf): null | HTTPReq => {
     }
     return null; // Not a complete header
   }
-  if (buf.length >= kMaxHeaderLen) {
-    throw new HTTPError(413, "header is too large");
-  }
+
   const end = idx + 4; // the end of the header is marked by '\r\n\r\n'
 
   const msg = Buffer.from(buf.data.subarray(0, end));
+  if (msg.length >= kMaxHeaderLen) {
+    throw new HTTPError(413, "header is too large");
+  }
   const reqHeader = parseHTTPReq(msg); // parse the header
   bufPop(buf, end); // remove the header from the buffer
   return reqHeader;
