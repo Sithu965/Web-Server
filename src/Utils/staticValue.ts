@@ -4,6 +4,19 @@ export const CONTROL_CHARS: Record<string, number> = {
   SPACE: 0x20, CR: 0x0d, LF: 0x0a, COLON: 0x3a,
 };
 
+// the maximum length of an HTTP header since memory is finite.
+export const kMaxHeaderLen = 1024 * 8;
+
+export const MAX_HEADER_COUNT = 100;
+
+// Default safe operational limit (16 MB) 'FFFFFF'
+export const MAX_CHUNK_SIZE = 16 * 1024 * 1024;
+
+export const MAX_CHUNK_LINE_LEN = 1024;
+
+// Default buffer size from GO's bufio.Writer, which is 4KB.
+export const BUFFER_SIZE = 4096;
+
 // Pre-computed lookup table for HTTP status codes and their reason phrases
 export const HTTP_STATUS_PHRASES: Record<number, string> = {
   // 1xx: Informational
